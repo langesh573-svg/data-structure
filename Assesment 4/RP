@@ -1,0 +1,40 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+typedef struct Node { char key[16]; struct Node *next; } Node;
+typedef struct { Node **b; size_t M, n; } Table;
+
+static int is_prime(size_t x) { if (x < 2) return 0; for (size_t i = 2; i * i <= x; i++) if (x % i == 0) return 0; return 1; }
+static size_t next_prime(size_t x) { while (!is_prime(x)) x++; return x; }
+static size_t hash(const char *s, size_t M) { size_t h = 0; while (*s) h = h * 31 + (unsigned char)*s++; return h % M; }
+
+void init(Table *t, size_t M) { t->M = M; t->n = 0; t->b = calloc(M, sizeof(Node *)); }
+
+void rehash(Table *t) {
+    size_t newM = next_prime(2 * t->M);
+    Node **nb = calloc(newM, sizeof(Node *));
+    for (size_t i = 0; i < t->M; i++)
+        for (Node *p = t->b[i], *nx; p; p = nx) {       /* relink nodes, no copying */
+            nx = p->next;
+            size_t k = hash(p->key, newM);
+            p->next = nb[k]; nb[k] = p;
+        }
+    free(t->b); t->b = nb; t->M = newM;
+}
+
+void insert(Table *t, const char *key) {
+    if ((double)(t->n + 1) / t->M > 0.75) { printf("rehash: %zu -> ", t->M); rehash(t); printf("%zu\n", t->M); }
+    Node *p = malloc(sizeof *p);
+    strncpy(p->key, key, 15); p->key[15] = '\0';
+    size_t k = hash(key, t->M);
+    p->next = t->b[k]; t->b[k] = p; t->n++;
+}
+
+int main(void) {
+    Table t; init(&t, next_prime(11));
+    char buf[16];
+    for (int i = 0; i < 100; i++) { snprintf(buf, sizeof buf, "CARD%05d", i); insert(&t, buf); }
+    printf("n=%zu M=%zu load=%.2f\n", t.n, t.M, (double)t.n / t.M);
+    return 0;
+}
