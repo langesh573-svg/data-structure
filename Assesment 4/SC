@@ -1,0 +1,64 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define M 7
+typedef struct Member {
+    char id[12];
+    char name[20];
+    struct Member *next;
+} Member;
+
+static Member *table[M];
+
+static unsigned hash(const char *s) {
+    unsigned h = 0;
+    while (*s) h = h * 31u + (unsigned char)*s++;
+    return h % M;
+}
+
+/* TODO 1: insert at front of chain */
+void put(const char *id, const char *name) {
+    Member *m = malloc(sizeof(Member));
+    strncpy(m->id, id, 11);     m->id[11] = '\0';
+    strncpy(m->name, name, 19); m->name[19] = '\0';
+    unsigned b = hash(id);
+    m->next = table[b];
+    table[b] = m;
+}
+
+/* TODO 2: walk the chain and count probes */
+const char *get(const char *id, int *probes) {
+    *probes = 0;
+    for (Member *m = table[hash(id)]; m; m = m->next) {
+        (*probes)++;
+        if (strcmp(m->id, id) == 0) return m->name;
+    }
+    return NULL;
+}
+
+static void free_all(void) {
+    for (int i = 0; i < M; i++)
+        for (Member *m = table[i], *n; m; m = n) { n = m->next; free(m); }
+}
+
+int main(void) {
+    /* sample data - replace with the keys given in your assignment sheet */
+    put("CSE1001", "Asha");  put("CSE1044", "Rahul"); put("CSE1002", "Meena");
+    put("CSE1003", "Kiran"); put("CSE1010", "Divya"); put("CSE1020", "Arun");
+
+    for (int i = 0; i < M; i++) {            /* chain lengths */
+        int len = 0;
+        for (Member *m = table[i]; m; m = m->next) len++;
+        printf("%d", len);
+    }
+    printf("\n");
+
+    int p;
+    const char *r = get("CSE1044", &p);
+    printf("CSE1044 -> %s (%d probes)\n", r ? r : "not found", p);
+    r = get("CSE9999", &p);
+    printf("CSE9999 -> %s (%d probes)\n", r ? r : "not found", p);
+    free_all();
+    return 0;
+}
