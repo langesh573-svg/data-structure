@@ -1,0 +1,56 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <omp.h>
+
+typedef struct { int id, amount; } Order;
+#define CUTOFF 4096
+
+static void merge(Order a[], Order tmp[], int lo, int mid, int hi) {
+    int i = lo, j = mid + 1, k = lo;
+    while (i <= mid && j <= hi) tmp[k++] = (a[i].amount <= a[j].amount) ? a[i++] : a[j++];
+    while (i <= mid) tmp[k++] = a[i++];
+    while (j <= hi)  tmp[k++] = a[j++];
+    for (int t = lo; t <= hi; t++) a[t] = tmp[t];
+}
+
+static void seq_sort(Order a[], Order tmp[], int lo, int hi) {
+    if (lo >= hi) return;
+    int mid = lo + (hi - lo) / 2;
+    seq_sort(a, tmp, lo, mid); seq_sort(a, tmp, mid + 1, hi);
+    merge(a, tmp, lo, mid, hi);
+}
+
+static void p_merge_sort(Order a[], Order tmp[], int lo, int hi) {
+    if (hi - lo < CUTOFF) { seq_sort(a, tmp, lo, hi); return; }
+    int mid = lo + (hi - lo) / 2;
+    #pragma omp task shared(a, tmp) firstprivate(lo, mid)
+    p_merge_sort(a, tmp, lo, mid);
+    #pragma omp task shared(a, tmp) firstprivate(mid, hi)
+    p_merge_sort(a, tmp, mid + 1, hi);
+    #pragma omp taskwait
+    merge(a, tmp, lo, mid, hi);
+}
+
+int main(void) {
+    int n = 4000000;
+    Order *base = malloc(n * sizeof *base), *a = malloc(n * sizeof *a), *tmp = malloc(n * sizeof *tmp);
+    srand(7);
+    for (int i = 0; i < n; i++) base[i] = (Order){i, rand() % 100000};
+    double t1 = 0;
+    int threads[] = {1, 2, 4, 8};
+    for (int t = 0; t < 4; t++) {
+        for (int i = 0; i < n; i++) a[i] = base[i];
+        omp_set_num_threads(threads[t]);
+        double s = omp_get_wtime();
+        #pragma omp parallel
+        #pragma omp single
+        p_merge_sort(a, tmp, 0, n - 1);
+        double e = omp_get_wtime() - s;
+        if (t == 0) t1 = e;
+        int ok = 1;
+        for (int i = 1; i < n; i++) if (a[i-1].amount > a[i].amount) ok = 0;
+        printf("threads=%d time=%.3fs speed-up=%.2fx sorted=%s\n", threads[t], e, t1 / e, ok ? "yes" : "NO");
+    }
+    free(base); free(a); free(tmp);
+    return 0;
+}
