@@ -1,0 +1,53 @@
+#include <stdio.h>
+#include <stdbool.h>
+
+#define MAX 100
+typedef struct { int severity, patient, arrival; } Case;
+
+static Case heap[MAX];
+static int size = 0, clock_ = 0;
+
+static bool higher(Case a, Case b) {          /* higher severity first, then earlier arrival */
+    if (a.severity != b.severity) return a.severity > b.severity;
+    return a.arrival < b.arrival;
+}
+static void swap(Case *a, Case *b) { Case t = *a; *a = *b; *b = t; }
+
+void push(int severity, int patient) {
+    if (size == MAX) return;
+    heap[size] = (Case){severity, patient, clock_++};
+    int i = size++;
+    while (i > 0) {                            /* TODO 1: sift up */
+        int p = (i - 1) / 2;
+        if (!higher(heap[i], heap[p])) break;
+        swap(&heap[p], &heap[i]);
+        i = p;
+    }
+}
+
+Case pop(void) {
+    Case top = heap[0];
+    heap[0] = heap[--size];
+    int i = 0;
+    for (;;) {                                 /* TODO 2: sift down */
+        int l = 2 * i + 1, r = l + 1, s = i;
+        if (l < size && higher(heap[l], heap[s])) s = l;
+        if (r < size && higher(heap[r], heap[s])) s = r;
+        if (s == i) break;
+        swap(&heap[i], &heap[s]);
+        i = s;
+    }
+    return top;
+}
+
+int main(void) {
+    int sev[] = {3, 9, 5, 7, 1, 8};
+    for (int i = 0; i < 6; i++) push(sev[i], 101 + i);
+    while (size > 0) { Case c = pop(); printf("P%d(%d) ", c.patient, c.severity); }
+    printf("\n");
+    /* fairness test: equal severities leave in arrival order */
+    push(5, 201); push(5, 202); push(5, 203);
+    while (size > 0) { Case c = pop(); printf("P%d(%d) ", c.patient, c.severity); }
+    printf("\n");
+    return 0;
+}
