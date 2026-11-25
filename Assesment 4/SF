@@ -1,0 +1,58 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+static long comps; static int depth, maxdepth;
+static void swap(int *a, int *b) { int t = *a; *a = *b; *b = t; }
+
+/* ORIGINAL (faulty): last-element pivot, recursion on both sides */
+void quick_bad(int a[], int lo, int hi) {
+    if (lo >= hi) return;
+    if (++depth > maxdepth) maxdepth = depth;
+    int p = a[hi], i = lo - 1;
+    for (int j = lo; j < hi; j++) { comps++; if (a[j] <= p) { i++; swap(&a[i], &a[j]); } }
+    swap(&a[i + 1], &a[hi]);
+    quick_bad(a, lo, i);
+    quick_bad(a, i + 2, hi);
+    depth--;
+}
+
+/* REPAIRED: median-of-three pivot + recurse on smaller part, loop on larger */
+static void median_to_end(int a[], int lo, int hi) {
+    int mid = lo + (hi - lo) / 2;
+    if (a[mid] < a[lo]) swap(&a[mid], &a[lo]);
+    if (a[hi]  < a[lo]) swap(&a[hi],  &a[lo]);
+    if (a[mid] < a[hi]) swap(&a[mid], &a[hi]);   /* a[hi] now holds the median */
+}
+void quick_good(int a[], int lo, int hi) {
+    while (lo < hi) {
+        median_to_end(a, lo, hi);
+        int p = a[hi], i = lo - 1;
+        for (int j = lo; j < hi; j++) { comps++; if (a[j] <= p) { i++; swap(&a[i], &a[j]); } }
+        swap(&a[i + 1], &a[hi]);
+        int pi = i + 1;
+        if (pi - lo < hi - pi) { depth++; if (depth > maxdepth) maxdepth = depth; quick_good(a, lo, pi - 1); depth--; lo = pi + 1; }
+        else                   { depth++; if (depth > maxdepth) maxdepth = depth; quick_good(a, pi + 1, hi); depth--; hi = pi - 1; }
+    }
+}
+
+static void run(const char *label, void (*f)(int[], int, int), int a[], int n) {
+    comps = 0; depth = 0; maxdepth = 0;
+    f(a, 0, n - 1);
+    printf("  %-8s comparisons=%-10ld max depth=%d\n", label, comps, maxdepth);
+}
+
+int main(void) {
+    int n = 10000;
+    int *a = malloc(n * sizeof *a), *b = malloc(n * sizeof *b);
+    const char *names[] = {"random", "sorted", "reverse"};
+    srand(1);
+    for (int t = 0; t < 3; t++) {
+        for (int i = 0; i < n; i++) a[i] = t == 0 ? rand() : t == 1 ? i : n - i;
+        for (int i = 0; i < n; i++) b[i] = a[i];
+        printf("%s input (n=%d)\n", names[t], n);
+        run("faulty", quick_bad, a, n);
+        run("repaired", quick_good, b, n);
+    }
+    free(a); free(b);
+    return 0;
+}
