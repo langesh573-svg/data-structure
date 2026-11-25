@@ -1,0 +1,12 @@
+#include <stdio.h>
+static void swap(int *a, int *b) { int t = *a; *a = *b; *b = t; }
+int main(void) {
+    int a[] = {7, 2, 9, 4, 3, 8, 5}, n = 7, lo = 0, hi = n - 1;
+    int p = a[hi], i = lo - 1, swaps = 0;
+    for (int j = lo; j < hi; j++)
+        if (a[j] <= p) { i++; swap(&a[i], &a[j]); swaps++; }
+    swap(&a[i + 1], &a[hi]);
+    for (int k = 0; k < n; k++) printf("%d ", a[k]);
+    printf("| pivot at %d, swaps %d\n", i + 1, swaps);
+    return 0;
+}
