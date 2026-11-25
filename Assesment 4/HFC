@@ -1,1 +1,51 @@
+/* Task 1: compare the poor state-code hash with polynomial and FNV-1a hashes */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
+#define N 100000
+#define MAXLEN 16
+
+unsigned hash_bad(const char *reg, unsigned mod) { return (reg[0] + reg[1]) % mod; }
+
+unsigned hash_poly(const char *reg, unsigned mod) {
+    unsigned h = 0;
+    while (*reg) h = h * 31u + (unsigned char)*reg++;
+    return h % mod;
+}
+
+unsigned hash_fnv1a(const char *reg, unsigned mod) {
+    unsigned h = 2166136261u;
+    while (*reg) { h ^= (unsigned char)*reg++; h *= 16777619u; }
+    return h % mod;
+}
+
+static void gen_key(char *s) {            /* e.g. TN09AB1234 (80% start with TN) */
+    const char *states[] = {"KA","KL","MH","AP","DL","GJ","UP","RJ","WB","MP"};
+    if (rand() % 100 < 80) memcpy(s, "TN", 2); else memcpy(s, states[rand() % 10], 2);
+    s[2] = '0' + rand() % 10; s[3] = '0' + rand() % 10;
+    s[4] = 'A' + rand() % 26; s[5] = 'A' + rand() % 26;
+    for (int i = 6; i < 10; i++) s[i] = '0' + rand() % 10;
+    s[10] = '\0';
+}
+
+static void measure(const char *name, unsigned (*h)(const char *, unsigned),
+                    unsigned M, char keys[][MAXLEN]) {
+    unsigned *cnt = calloc(M, sizeof *cnt);
+    for (int i = 0; i < N; i++) cnt[h(keys[i], M)]++;
+    unsigned longest = 0, occ = 0;
+    for (unsigned i = 0; i < M; i++) { if (cnt[i]) occ++; if (cnt[i] > longest) longest = cnt[i]; }
+    printf("%-22s M=%-7u longest=%-7u avg(non-empty)=%-10.2f occupied=%u\n",
+           name, M, longest, (double)N / occ, occ);
+    free(cnt);
+}
+
+int main(void) {
+    static char keys[N][MAXLEN];
+    srand(12345);
+    for (int i = 0; i < N; i++) gen_key(keys[i]);
+    measure("Poor (state code)", hash_bad, 1000, keys);
+    measure("Polynomial (31)", hash_poly, 200003, keys);
+    measure("FNV-1a", hash_fnv1a, 200003, keys);
+    return 0;
+}
