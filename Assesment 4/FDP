@@ -1,0 +1,159 @@
+/* Heap key: delay = now - promised_time. "now" is the same for all orders, so the
+ * most-delayed order is the one with the SMALLEST promised_time. The heap is ordered
+ * by promised_time (earlier = higher priority); ties broken by arrival sequence. */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+typedef struct Order {
+    char id[16], restaurant[24];
+    int amount; long promised;
+    int heap_idx, seq;
+    struct Order *next;                    /* hash-chain link */
+} Order;
+
+/* ---------- hash table (separate chaining, rehash at load > 0.7) ---------- */
+static Order **tab; static size_t M, N_live;
+
+static int is_prime(size_t x) { if (x < 2) return 0; for (size_t i = 2; i * i <= x; i++) if (x % i == 0) return 0; return 1; }
+static size_t next_prime(size_t x) { while (!is_prime(x)) x++; return x; }
+static size_t hash(const char *s, size_t m) { size_t h = 0; while (*s) h = h * 31 + (unsigned char)*s++; return h % m; }
+
+static void ht_init(size_t m) { M = next_prime(m); tab = calloc(M, sizeof *tab); N_live = 0; }
+static void ht_rehash(void) {
+    size_t nm = next_prime(2 * M);
+    Order **nt = calloc(nm, sizeof *nt);
+    for (size_t i = 0; i < M; i++)
+        for (Order *p = tab[i], *nx; p; p = nx) { nx = p->next; size_t k = hash(p->id, nm); p->next = nt[k]; nt[k] = p; }
+    free(tab); tab = nt; M = nm;
+}
+static void ht_insert(Order *o) {
+    if ((double)(N_live + 1) / M > 0.7) ht_rehash();
+    size_t k = hash(o->id, M); o->next = tab[k]; tab[k] = o; N_live++;
+}
+static Order *ht_search(const char *id) {
+    for (Order *p = tab[hash(id, M)]; p; p = p->next) if (!strcmp(p->id, id)) return p;
+    return NULL;
+}
+static void ht_delete(const char *id) {
+    Order **pp = &tab[hash(id, M)];
+    for (; *pp; pp = &(*pp)->next)
+        if (!strcmp((*pp)->id, id)) { *pp = (*pp)->next; N_live--; return; }
+}
+
+/* ---------- binary heap with back-pointers (heap_idx) ---------- */
+static Order **heap; static int hn = 0, seq_counter = 0;
+
+static int before(Order *a, Order *b) {
+    if (a->promised != b->promised) return a->promised < b->promised;
+    return a->seq < b->seq;
+}
+static void hswap(int i, int j) {
+    Order *t = heap[i]; heap[i] = heap[j]; heap[j] = t;
+    heap[i]->heap_idx = i; heap[j]->heap_idx = j;
+}
+static void sift_up(int i) { while (i > 0) { int p = (i - 1) / 2; if (!before(heap[i], heap[p])) break; hswap(i, p); i = p; } }
+static void sift_down(int i) {
+    for (;;) {
+        int l = 2 * i + 1, r = l + 1, s = i;
+        if (l < hn && before(heap[l], heap[s])) s = l;
+        if (r < hn && before(heap[r], heap[s])) s = r;
+        if (s == i) break;
+        hswap(i, s); i = s;
+    }
+}
+static void heap_push(Order *o) { heap[hn] = o; o->heap_idx = hn; sift_up(hn++); }
+static void heap_remove_at(int i) {          /* swap with last leaf, then restore */
+    Order *last = heap[--hn];
+    if (i == hn) return;
+    heap[i] = last; last->heap_idx = i;
+    sift_up(i); sift_down(last->heap_idx);
+}
+
+/* ---------- the four operations ---------- */
+Order *PlaceOrder(const char *id, const char *rest, int amount, long promised) {
+    Order *o = calloc(1, sizeof *o);
+    strncpy(o->id, id, 15); strncpy(o->restaurant, rest, 23);
+    o->amount = amount; o->promised = promised; o->seq = seq_counter++;
+    ht_insert(o); heap_push(o);
+    return o;
+}
+Order *AssignNextRider(void) {
+    if (hn == 0) return NULL;
+    Order *o = heap[0];
+    heap_remove_at(0); ht_delete(o->id);
+    return o;                                  /* caller frees */
+}
+int CancelOrder(const char *id) {
+    Order *o = ht_search(id);
+    if (!o) return 0;
+    heap_remove_at(o->heap_idx); ht_delete(id); free(o);
+    return 1;
+}
+
+/* stable merge sort on an array of Order* with a comparison callback */
+typedef int (*cmp_fn)(const Order *, const Order *);
+static void msort(Order **a, Order **tmp, int lo, int hi, cmp_fn c) {
+    if (lo >= hi) return;
+    int mid = lo + (hi - lo) / 2, i = lo, j = mid + 1, k = lo;
+    msort(a, tmp, lo, mid, c); msort(a, tmp, mid + 1, hi, c);
+    while (i <= mid && j <= hi) tmp[k++] = (c(a[i], a[j]) <= 0) ? a[i++] : a[j++];
+    while (i <= mid) tmp[k++] = a[i++];
+    while (j <= hi)  tmp[k++] = a[j++];
+    for (k = lo; k <= hi; k++) a[k] = tmp[k];
+}
+static int cmp_seq(const Order *a, const Order *b) { return a->seq - b->seq; }
+static int cmp_rest_amount(const Order *a, const Order *b) {
+    int r = strcmp(a->restaurant, b->restaurant);
+    return r ? r : (a->amount > b->amount) - (a->amount < b->amount);
+}
+void HourlyReport(int print) {
+    Order **A = malloc(N_live * sizeof *A), **T = malloc(N_live * sizeof *T);
+    size_t n = 0;
+    for (size_t i = 0; i < M; i++) for (Order *p = tab[i]; p; p = p->next) A[n++] = p;
+    msort(A, T, 0, (int)n - 1, cmp_seq);           /* restore arrival order first */
+    msort(A, T, 0, (int)n - 1, cmp_rest_amount);   /* stable on (restaurant, amount) */
+    if (print) for (size_t i = 0; i < n; i++)
+        printf("  %-10s %-8s %5d (arrival #%d)\n", A[i]->restaurant, A[i]->id, A[i]->amount, A[i]->seq);
+    free(A); free(T);
+}
+
+int main(void) {
+    heap = malloc(300000 * sizeof *heap);
+    ht_init(101);
+
+    /* functional demo */
+    PlaceOrder("O1", "Spice",  250, 1000);
+    PlaceOrder("O2", "Annam",  180,  900);
+    PlaceOrder("O3", "Spice",  250, 1100);
+    PlaceOrder("O4", "Annam",  180,  950);
+    PlaceOrder("O5", "Biryani", 400,  800);
+    printf("Hourly report:\n"); HourlyReport(1);
+    printf("Cancel O5: %s\n", CancelOrder("O5") ? "ok" : "not found");
+    printf("Cancel O9: %s\n", CancelOrder("O9") ? "ok" : "not found");
+    Order *o;
+    printf("Assignment order:");
+    while ((o = AssignNextRider())) { printf(" %s", o->id); free(o); }
+    printf("\n\n");
+
+    /* timing demo */
+    int sizes[] = {50000, 100000};
+    for (int s = 0; s < 2; s++) {
+        int n = sizes[s]; char id[16];
+        free(tab); ht_init(101); hn = 0;
+        clock_t t0 = clock();
+        for (int i = 0; i < n; i++) { snprintf(id, sizeof id, "ORD%07d", i); PlaceOrder(id, "R", rand() % 1000, rand() % 100000); }
+        double place = (double)(clock() - t0) / CLOCKS_PER_SEC / n * 1e6;
+        t0 = clock();
+        for (int i = 0; i < n; i++) { snprintf(id, sizeof id, "ORD%07d", i); ht_search(id); }
+        double look = (double)(clock() - t0) / CLOCKS_PER_SEC / n * 1e6;
+        t0 = clock(); HourlyReport(0);
+        double rep = (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC;
+        t0 = clock();
+        for (int i = 0; i < n / 2; i++) { o = AssignNextRider(); free(o); }
+        double asg = (double)(clock() - t0) / CLOCKS_PER_SEC / (n / 2) * 1e6;
+        printf("n=%d: place %.2f us, lookup %.2f us, assign %.2f us, report %.1f ms\n", n, place, look, asg, rep);
+    }
+    return 0;
+}
